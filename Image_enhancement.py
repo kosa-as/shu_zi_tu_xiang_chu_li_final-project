@@ -245,109 +245,73 @@ def exp_high():
         cv2.waitKey(0)
 
 
-def ideal_low_filter(img, D0):
-    """
-    生成一个理想低通滤波器（并返回）
-    """
-    h, w = img.shape[:2]
-    filter_img = np.ones((h, w))
-    u = np.fix(h / 2)
-    v = np.fix(w / 2)
-    for i in range(h):
-        for j in range(w):
-            d = np.sqrt((i - u) ** 2 + (j - v) ** 2)
-            filter_img[i, j] = 0 if d > D0 else 1
-    return filter_img
-
-
-def butterworth_low_filter(img, D0, rank):
-    """
-        生成一个Butterworth低通滤波器（并返回）
-    """
-    h, w = img.shape[:2]
-    filter_img = np.zeros((h, w))
-    u = np.fix(h / 2)
-    v = np.fix(w / 2)
-    for i in range(h):
-        for j in range(w):
-            d = np.sqrt((i - u) ** 2 + (j - v) ** 2)
-            filter_img[i, j] = 1 / (1 + 0.414 * (d / D0) ** (2 * rank))
-    return filter_img
-
-
-def exp_low_filter(img, D0, rank):
-    """
-        生成一个指数低通滤波器（并返回）
-    """
-    h, w = img.shape[:2]
-    filter_img = np.zeros((h, w))
-    u = np.fix(h / 2)
-    v = np.fix(w / 2)
-    for i in range(h):
-        for j in range(w):
-            d = np.sqrt((i - u) ** 2 + (j - v) ** 2)
-            filter_img[i, j] = np.exp(np.log(1 / np.sqrt(2)) * (d / D0) ** (2 * rank))
-    return filter_img
-
-
-def filter_use_low(img, filter):
-    """
-    将图像img与滤波器filter结合，生成对应的滤波图像
-    """
-    # 首先进行傅里叶变换
-    f = np.fft.fft2(img)
-    f_center = np.fft.fftshift(f)
-    # 应用滤波器进行反变换
-    S = np.multiply(f_center, filter)  # 频率相乘——l(u,v)*H(u,v)
-    f_origin = np.fft.ifftshift(S)  # 将低频移动到原来的位置
-    f_origin = np.fft.ifft2(f_origin)  # 使用ifft2进行傅里叶的逆变换
-    f_origin = np.abs(f_origin)  # 设置区间
-    return f_origin
-
-
-def ideal_low():
+def get_gray():
     cap = cv2.VideoCapture(0)
     ok, frame = cap.read()
     src = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     cap.release()
-    if ok:
-        img = src
-        ideal_filter = ideal_low_filter(img, D0=40)
-        ideal_img = filter_use_low(img, ideal_filter)
-        cv2.imshow("resourse", src)
-        cv2.imshow("result", ideal_img)
-        # 等待关闭
-        cv2.waitKey(0)
+    return src
 
+def filter(img, D0, type, filter, N=2):
+    '''
+    频域滤波器
+    Args:
+        img: 灰度图片
+        D0: 截止频率
+        N: butterworth的阶数(默认使用二阶)
+        type: lp-低通 hp-高通
+        filter:butterworth、ideal、Gaussian即巴特沃斯、理想、高斯滤波器
+    Returns:
+        imgback：滤波后的图像
+    '''
+    # 离散傅里叶变换
+    dft = cv2.dft(np.float32(img), flags=cv2.DFT_COMPLEX_OUTPUT)
+    # 中心化
+    dtf_shift = np.fft.fftshift(dft)
 
-def butterworth_low():
-    cap = cv2.VideoCapture(0)
-    ok, frame = cap.read()
-    src = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    cap.release()
-    if ok:
-        img = src
-        ideal_filter = butterworth_low_filter(img, D0=28, rank=2)
-        ideal_img = filter_use_low(img, ideal_filter)
-        cv2.imshow("resourse", src)
-        cv2.imshow("result", ideal_img)
-        # 等待关闭
-        cv2.waitKey(0)
+    rows, cols = img.shape
+    crow, ccol = int(rows / 2), int(cols / 2)  # 计算频谱中心
+    mask = np.zeros((rows, cols, 2))  # 生成rows行cols列的二维矩阵
 
+    for i in range(rows):
+        for j in range(cols):
+            D = np.sqrt((i - crow) ** 2 + (j - ccol) ** 2) # 计算D(u,v)
+            if (filter.lower() == 'butterworth'):  # 巴特沃斯滤波器
+                if (type == 'lp'):
+                    mask[i, j] = 1 / (1 + (D / D0) ** (2 * N))
+                elif (type == 'hp'):
+                    mask[i, j] = 1 / (1 + (D0 / D) ** (2 * N))
+                else:
+                    assert ('type error')
+            elif (filter.lower() == 'ideal'):  # 理想滤波器
+                if (type == 'lp'):
+                    if (D <= D0):
+                        mask[i, j] = 1
+                elif (type == 'hp'):
+                    if (D > D0):
+                        mask[i, j] = 1
+                else:
+                    assert ('type error')
+            elif (filter.lower() == 'gaussian'):  # 高斯滤波器
+                if (type == 'lp'):
+                    mask[i, j] = np.exp(-(D * D) / (2 * D0 * D0))
+                elif (type == 'hp'):
+                    mask[i, j] = (1 - np.exp(-(D * D) / (2 * D0 * D0)))
+                else:
+                    assert ('type error')
 
-def exp_low():
-    cap = cv2.VideoCapture(0)
-    ok, frame = cap.read()
-    src = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    cap.release()
-    if ok:
-        img = src
-        exp_filter = exp_low_filter(img, D0=12, rank=2)
-        exp_img = filter_use_low(img, exp_filter)
-        cv2.imshow("resourse", src)
-        cv2.imshow("result", exp_img)
-        # 等待关闭
-        cv2.waitKey(0)
+    fshift = dtf_shift * mask
+
+    f_ishift = np.fft.ifftshift(fshift)
+
+    img_back = cv2.idft(f_ishift)
+
+    img_back = cv2.magnitude(img_back[:, :, 0], img_back[:, :, 1])  # 计算像素梯度的绝对值
+
+    img_back = np.abs(img_back)
+
+    return img_back
+
 def main():
      print("1.空域的锐化 2.空域的平滑 3.频域的锐化 4.频域的平滑")
      cin = input()
@@ -390,11 +354,25 @@ def main():
          print("选择滤波器： 1.理想低通滤波 2.巴特沃斯低通滤波 3.指数低通滤波器")
          myinput = input()
          if myinput == '1':
-             ideal_low()
+             src = get_gray()
+             img = filter(src, 30, type='lp', filter='ideal')
+             cv2.imshow("resourse", src)
+             cv2.imshow("result", img)
+             # 等待关闭
+             cv2.waitKey(0)
          elif myinput == '2':
-             butterworth_low()
+             src = get_gray()
+             img = filter(src, 30, type='lp', filter='butterworth')
+             cv2.imshow("resourse", src)
+             cv2.imshow("result", img)
+             # 等待关闭
+             cv2.waitKey(0)
          elif myinput == '3':
-             exp_low()
+             src = get_gray()
+             img = filter(src, 30, type='lp', filter='gaussian')
+             cv2.imshow("resourse", src)
+             cv2.imshow("result", img)
+             cv2.waitKey(0)
          else:
              print("Wrong input!")
      else:
